@@ -7,13 +7,18 @@ wired correctly into the console, notebook, and Streamlit front-ends.
 import nbformat
 from nbclient import NotebookClient
 from streamlit.testing.v1 import AppTest
+from pathlib import Path
 
 from helpers import run_python_script
 
 
+ROOT = Path(__file__).resolve().parent.parent
+CODE = ROOT / "code"
+
+
 def test_console_app():
     # Feed subtotal=50, tip=20%, people=4 to the console app on stdin.
-    output = run_python_script("./code/console.py", "50\n20\n4\n")
+    output = run_python_script(str(CODE / "console.py"), "50\n20\n4\n")
     assert "$10.00" in output   # tip
     assert "$60.00" in output   # grand total
     assert "$15.00" in output   # per person
@@ -22,8 +27,8 @@ def test_console_app():
 
 def test_notebook_app():
     # Execute the notebook headless (kernel runs in code/ so `import bill` works).
-    nb = nbformat.read("code/explore.ipynb", as_version=4)
-    NotebookClient(nb, resources={"metadata": {"path": "code"}}).execute()
+    nb = nbformat.read(CODE / "explore.ipynb", as_version=4)
+    NotebookClient(nb, resources={"metadata": {"path": str(CODE)}}).execute()
     printed = "\n".join(
         out.get("text", "")
         for cell in nb.cells if cell.cell_type == "code"
@@ -33,14 +38,22 @@ def test_notebook_app():
 
 
 def _widget(widgets, key):
+    aliases = {
+        "subtotal": ("subtotal",),
+        "tip": ("tip",),
+        "people": ("people", "person", "number of people"),
+    }.get(key, (key,))
     for widget in widgets:
-        if getattr(widget, "key", None) == key:
+        widget_key = str(getattr(widget, "key", "") or "").lower()
+        label = str(getattr(widget, "label", "") or "").lower()
+        if widget_key == key or any(alias in label for alias in aliases):
             return widget
     raise KeyError(key)
 
 
 def test_streamlit_app():
-    app = AppTest.from_file("code/dashboard.py")
+    """Verify the Streamlit dashboard calculates the expected bill totals."""
+    app = AppTest.from_file(str(CODE / "dashboard.py"))
     app.run()
     _widget(app.number_input, "subtotal").set_value(50.0)
     _widget(app.slider, "tip").set_value(20)
